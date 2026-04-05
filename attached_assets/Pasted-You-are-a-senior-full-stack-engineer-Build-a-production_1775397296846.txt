@@ -1,0 +1,851 @@
+You are a senior full-stack engineer. Build a production-ready Shopify → Tabliya integration service.
+
+I will attach these files to you:
+1. API_DOCUMENTATION.md
+2. screenshots/images of the API documentation
+
+You must use those files as the source of truth for the Tabliya side of the integration.
+
+==================================================
+PROJECT GOAL
+==================================================
+
+Build a full first-version integration between Shopify and Tabliya.
+
+This integration must support:
+
+1. New Shopify orders → create orders in Tabliya
+2. Shopify order updates → update existing Tabliya orders
+3. Shopify order cancellations → reflect cancellation in Tabliya
+4. Replay failed syncs manually
+5. Admin UI for mappings, logs, failures, and reprocessing
+6. Idempotent webhook processing
+7. Robust retries and reconciliation
+8. Full auditability
+
+This is NOT a minimal MVP.
+I want the first version to be as complete as possible for order lifecycle sync.
+
+==================================================
+BUSINESS SCOPE
+==================================================
+
+Sync direction:
+- Shopify → Tabliya
+
+Primary entities in scope:
+- Orders
+- Order line items
+- Customer/order address info
+- Payment status
+- Payment method
+- Order notes
+- Order updates
+- Order cancellations
+
+Not in scope unless easy:
+- Product sync from Shopify to Tabliya
+- Inventory sync
+- Refund accounting sync beyond cancellation/refund note handling
+- Supplier/material/recipe sync
+- Tabliya → Shopify sync
+
+Important:
+Even though product sync is NOT in scope, Tabliya order creation requires product IDs on order items, so you MUST build a local product mapping layer:
+- Shopify variant ID → Tabliya product ID
+
+==================================================
+TABLIYA API REQUIREMENTS
+==================================================
+
+Use the attached API documentation files as the source of truth.
+
+Important known endpoints that must be integrated:
+
+Authentication:
+- POST /api/auth/login
+
+Products:
+- GET /api/products
+- GET /api/products/<id>
+
+Orders:
+- GET /api/orders
+- GET /api/orders/<id>
+- POST /api/orders
+- PUT /api/orders/<id>
+- DELETE /api/orders/<id>
+- GET /api/orders/statuses
+
+Invoices:
+- GET /api/invoices
+- GET /api/invoices/<id>
+- GET /api/invoices/order/<order_id>
+- POST /api/invoices
+- PUT /api/invoices/<id>
+- DELETE /api/invoices/<id>
+
+Payment methods:
+- GET /api/payment-methods
+- POST /api/payment-methods
+- PUT /api/payment-methods/<id>
+- DELETE /api/payment-methods/<id>
+
+Authentication uses:
+Authorization: Bearer <idToken>
+
+Tabliya login returns an idToken which must be cached and refreshed properly.
+
+==================================================
+SHOPIFY REQUIREMENTS
+==================================================
+
+Build this using Shopify webhooks and Shopify Admin API access.
+
+Handle these Shopify webhook/event types at minimum:
+- order creation
+- order updates/edits
+- order cancellations
+
+If Shopify has multiple relevant event topics for cancellation/changes, build the code in a way that supports the proper order lifecycle topics cleanly.
+
+Webhook requirements:
+- verify HMAC using raw request body
+- reject invalid signatures
+- persist all webhook payloads
+- queue all processing asynchronously
+- return success quickly
+- make processing idempotent
+
+==================================================
+REQUIRED TECH STACK
+==================================================
+
+Use this stack unless there is a very strong reason not to:
+
+- Node.js
+- TypeScript
+- Express
+- PostgreSQL
+- Prisma ORM
+- Redis
+- BullMQ for background jobs
+- Axios for HTTP client
+- Zod for validation
+- Pino for logging
+- dotenv for config
+- EJS or a minimal server-rendered admin UI
+- Vitest or Jest for tests
+- Docker + docker-compose
+
+The project must run locally and in Replit.
+
+==================================================
+WHAT TO BUILD
+==================================================
+
+Build a complete service with:
+
+1. Webhook ingestion
+2. Background job processing
+3. Tabliya API client
+4. Mapping storage
+5. Admin UI
+6. Logging and observability
+7. Retry and replay support
+8. Reconciliation tools
+9. Tests
+10. Deployment-ready docs
+
+==================================================
+ARCHITECTURE
+==================================================
+
+Use this architecture:
+
+Shopify webhooks
+    ->
+Express webhook endpoint
+    ->
+Store raw webhook event in DB
+    ->
+Push job to queue
+    ->
+Worker processes event
+    ->
+Transform Shopify payload to Tabliya payload
+    ->
+Call Tabliya API
+    ->
+Store sync result and external IDs
+    ->
+Expose result in admin UI
+
+==================================================
+ORDER LIFECYCLE BEHAVIOR
+==================================================
+
+You must support the full order lifecycle in v1.
+
+A. ORDER CREATION
+When a Shopify order is created:
+- create a corresponding Tabliya order using POST /api/orders
+
+B. ORDER UPDATE
+When a Shopify order is edited or updated:
+- find the corresponding Tabliya order
+- update it using PUT /api/orders/<id>
+- sync changed buyer info, address, delivery date, payment status, payment method, notes, and any fields supported by Tabliya
+- if Tabliya order item updates are not directly supported in a single update endpoint, document the limitation clearly and implement the best safe behavior possible
+- preserve traceability between Shopify order and Tabliya order
+
+C. ORDER CANCELLATION
+This is important and mandatory.
+
+When a Shopify order is cancelled:
+- reflect that in Tabliya
+- use the most correct behavior supported by the attached API documentation
+
+Implement cancellation logic safely:
+1. First preference:
+   - if Tabliya supports updating order status to a cancellation-like state via PUT /api/orders/<id>, use that
+2. If cancellation status is not supported but delete is the intended pattern:
+   - use DELETE /api/orders/<id>
+3. If neither is safe enough from the docs alone:
+   - mark for manual review and log prominently
+
+Also:
+- preserve cancellation reason, cancelled timestamp, and Shopify references in notes/logs when possible
+- prevent repeated cancellation actions from causing inconsistent state
+
+D. OPTIONAL INVOICE FOLLOW-UP
+If the existing Tabliya flow expects invoices to mirror order payment/address changes, add optional support for:
+- POST /api/invoices
+- PUT /api/invoices/<id>
+
+But keep invoice sync behind a config flag if needed.
+Order sync is the main priority.
+
+==================================================
+DATABASE MODELS
+==================================================
+
+Use Prisma and create at least these models:
+
+1. WebhookEvent
+Fields:
+- id
+- source (shopify)
+- topic
+- shopDomain
+- webhookId / eventId if available
+- shopifyOrderId
+- shopifyOrderAdminGraphqlId if available
+- rawHeaders (JSON)
+- rawBody (text)
+- parsedBody (JSON, optional)
+- signatureValid (boolean)
+- processingStatus (pending, processed, failed, duplicate, skipped)
+- receivedAt
+- processedAt
+- errorMessage
+- createdAt
+- updatedAt
+
+2. OrderSync
+Fields:
+- id
+- shopifyOrderId
+- shopifyOrderName
+- shopifyOrderNumber
+- shopifyFinancialStatus
+- shopifyFulfillmentStatus
+- tabliyaOrderId
+- tabliyaOrderNumber
+- lastSyncAction (create, update, cancel, replay)
+- syncStatus (pending, synced, failed, cancelled, skipped)
+- failureReason
+- requestPayload (JSON)
+- responsePayload (JSON)
+- webhookEventId
+- createdAt
+- updatedAt
+
+3. ProductMapping
+Fields:
+- id
+- shopifyProductId
+- shopifyVariantId
+- shopifySku
+- shopifyProductTitle
+- shopifyVariantTitle
+- tabliyaProductId
+- tabliyaProductName
+- active
+- createdAt
+- updatedAt
+
+4. PaymentMethodMapping
+Fields:
+- id
+- shopifyPaymentLabel
+- tabliyaPaymentMethod
+- active
+- createdAt
+- updatedAt
+
+5. AppSetting
+Fields:
+- id
+- key
+- value
+- createdAt
+- updatedAt
+
+6. SyncJobLog
+Fields:
+- id
+- jobType
+- jobStatus
+- referenceId
+- message
+- details
+- createdAt
+
+7. ManualReviewItem
+Fields:
+- id
+- entityType
+- entityId
+- reason
+- payload
+- status
+- createdAt
+- updatedAt
+
+==================================================
+IDEMPOTENCY RULES
+==================================================
+
+This is critical.
+
+You must prevent duplicate processing and duplicate Tabliya orders.
+
+Rules:
+- Deduplicate webhook deliveries
+- Deduplicate by Shopify order ID as the main business key
+- If an order is already synced successfully, do not recreate it
+- If an update event arrives repeatedly, do not create duplicates
+- If a cancel event arrives repeatedly, do not apply cancellation twice
+- Manual replay must be explicit and tracked
+
+Implement idempotency keys and state checks carefully.
+
+==================================================
+PRODUCT MAPPING REQUIREMENT
+==================================================
+
+Because Tabliya order items require product_id, build a local mapping system:
+
+Shopify variant ID -> Tabliya product ID
+
+Requirements:
+- admin CRUD UI
+- import existing Tabliya products via GET /api/products
+- show unmapped Shopify items in failure logs
+- do not create a Tabliya order if any line item is unmapped
+- allow replay after mappings are fixed
+
+Use Shopify variant ID as the primary key, not product title.
+
+Also store SKU and titles for operator clarity.
+
+==================================================
+PAYMENT METHOD MAPPING REQUIREMENT
+==================================================
+
+Build a local mapping system:
+
+Shopify payment label/gateway -> Tabliya payment_method string
+
+Requirements:
+- admin CRUD UI
+- import existing Tabliya payment methods via GET /api/payment-methods
+- optionally create missing Tabliya payment methods via POST /api/payment-methods
+- support multiple Shopify labels mapping into one Tabliya method
+
+==================================================
+FIELD MAPPING RULES
+==================================================
+
+Transform Shopify orders into Tabliya order payloads.
+
+Use these mapping rules:
+
+Tabliya order_number:
+- use a unique integration-safe value like:
+  SHOPIFY-<shopify_order_id>
+
+Also include the original Shopify order name/number in notes.
+
+Tabliya order_date:
+- use Shopify created date converted to YYYY-MM-DD
+
+Tabliya delivery_date:
+- first try to get it from Shopify note attributes / cart attributes / metafields / tags if available
+- otherwise use a configurable fallback:
+  created_at + DEFAULT_DELIVERY_OFFSET_DAYS
+
+Tabliya buyer_name:
+- use shipping full name first
+- otherwise billing full name
+- otherwise customer name
+- otherwise fallback to email
+
+Tabliya payment_status:
+Map Shopify status carefully:
+- paid -> paid
+- partially paid -> partial
+- pending/authorized/unpaid-like -> unpaid
+
+Tabliya amount_paid_partial:
+- set when payment_status = partial
+- compute from Shopify amounts if possible
+
+Tabliya street_name and house_number:
+- parse from Shopify shipping address line 1
+- best-effort parser for common EU/Dutch address styles
+- if parsing fails, store full line in street_name and use configurable fallback for house_number
+- log warning
+
+Tabliya zip_code:
+- use shipping postal code
+
+Tabliya payment_method:
+- resolve using PaymentMethodMapping
+
+Tabliya notes:
+Include:
+- Shopify order name
+- Shopify order ID
+- customer note
+- cancellation note if any
+- refund/cancellation context if relevant
+- original payment gateway label
+- discount info if not cleanly representable
+- delivery notes
+- anything important for traceability
+
+Line item mapping:
+For each Shopify line item:
+- resolve product mapping by Shopify variant ID
+- map quantity directly
+- calculate discount_percent if possible
+- if not possible, set discount_percent = 0 and add discount details in notes
+- include SKU/variant traceability in item notes
+
+If any item is unmapped:
+- do not sync the order
+- log exact unmapped items
+- mark as failed/manual review
+- allow replay later
+
+==================================================
+ORDER UPDATE STRATEGY
+==================================================
+
+For Shopify order updates, implement a careful strategy.
+
+Sync supported mutable fields into Tabliya where possible:
+- buyer_name
+- order_date
+- delivery_date
+- payment_status
+- payment_method
+- amount_paid_partial
+- street_name
+- house_number
+- zip_code
+- notes
+- status if supported
+
+Also handle line-item-level changes as well as reasonably possible.
+
+Because Tabliya docs show order update fields primarily at order level, inspect the attached docs carefully and implement the safest supported behavior.
+
+If full item mutation is not clearly supported:
+- document that limitation
+- update notes with a change summary
+- flag significant item changes for manual review
+- do not silently ignore them
+
+==================================================
+ORDER CANCELLATION STRATEGY
+==================================================
+
+This must be implemented thoughtfully.
+
+When Shopify says an order is cancelled:
+1. Find the mapped Tabliya order
+2. Determine the safest supported Tabliya action using the attached docs
+3. Prefer status update if a cancelled-like order status exists and is supported
+4. Otherwise consider DELETE /api/orders/<id> only if appropriate
+5. Log everything
+
+Also:
+- store cancellation payload
+- include cancelled_at and reason
+- if already cancelled/deleted, treat as idempotent success
+- surface in admin UI
+
+==================================================
+TABLIYA CLIENT
+==================================================
+
+Build a reusable Tabliya client service with:
+
+- login()
+- getValidToken()
+- automatic token caching
+- automatic retry on 401 once after re-login
+- typed methods:
+  - listProducts()
+  - getProduct(id)
+  - listOrders()
+  - getOrder(id)
+  - createOrder(payload)
+  - updateOrder(id, payload)
+  - deleteOrder(id)
+  - getOrderStatuses()
+  - listPaymentMethods()
+  - createPaymentMethod(payload)
+  - updatePaymentMethod(id, payload)
+  - deletePaymentMethod(id)
+  - listInvoices()
+  - getInvoiceByOrder(orderId)
+  - createInvoice(payload)
+  - updateInvoice(id, payload)
+
+Use structured logging for all requests and responses.
+Redact secrets.
+
+==================================================
+SHOPIFY CLIENT
+==================================================
+
+Build a small Shopify client/helper layer for:
+- verifying webhooks
+- reading normalized order payloads
+- optionally fetching fresh order details from Shopify Admin API when needed
+- handling order IDs consistently
+
+==================================================
+BACKGROUND JOBS
+==================================================
+
+Use BullMQ with Redis.
+
+Create job types such as:
+- process-shopify-order-created
+- process-shopify-order-updated
+- process-shopify-order-cancelled
+- replay-sync
+- reconcile-failed-syncs
+- sync-tabliya-products
+- sync-tabliya-payment-methods
+
+Requirements:
+- retry transient errors with exponential backoff
+- do not retry validation/mapping failures automatically
+- log job attempts
+- preserve failure reasons
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Handle at least these cases:
+
+- invalid Shopify signature
+- duplicate webhook
+- missing Shopify order ID
+- missing product mapping
+- missing payment mapping
+- Tabliya auth failure
+- Tabliya 400 validation errors
+- Tabliya 401 expired token
+- Tabliya 404 missing order
+- Tabliya 500/server issues
+- network timeout
+- cancellation of unsynced order
+- update of unsynced order
+- item changes not safely representable in Tabliya
+- address parse failure
+
+Behavior:
+- validation/mapping issues -> fail clearly, no blind retry
+- transient/server/network issues -> retry
+- unresolved business ambiguity -> manual review queue
+
+==================================================
+ADMIN UI
+==================================================
+
+Build a minimal but usable admin UI.
+
+Pages/features required:
+
+1. Dashboard
+- summary counts
+- failed syncs
+- pending jobs
+- recent webhook events
+- recent order syncs
+
+2. Product mappings
+- list
+- create
+- edit
+- delete
+- search/filter
+- import Tabliya products
+
+3. Payment method mappings
+- list
+- create
+- edit
+- delete
+- import Tabliya payment methods
+- optionally create missing payment methods in Tabliya
+
+4. Webhook events
+- list
+- view raw payload
+- status
+- duplicate indicator
+- error message
+
+5. Sync logs
+- list
+- filter by success/failure/action
+- view request payload
+- view response payload
+- replay failed sync
+
+6. Manual review queue
+- show items requiring human attention
+- mark resolved
+- replay after fix
+
+7. Settings
+- default delivery offset days
+- default house number fallback
+- invoice sync enabled/disabled
+- log level
+
+Protect admin UI with simple auth:
+- basic username/password from env is acceptable for first version
+
+==================================================
+RECONCILIATION
+==================================================
+
+Build a reconciliation tool/job.
+
+Requirements:
+- retry failed syncs safely
+- reprocess stuck pending rows
+- allow manual replay from admin UI
+- optionally compare stored Shopify order state against last synced state
+
+==================================================
+CONFIGURATION
+==================================================
+
+Use environment variables and provide a full .env.example
+
+Include at least:
+
+PORT=3000
+NODE_ENV=development
+
+DATABASE_URL=
+REDIS_URL=
+
+SHOPIFY_STORE_DOMAIN=
+SHOPIFY_ADMIN_ACCESS_TOKEN=
+SHOPIFY_WEBHOOK_SECRET=
+
+TABLIYA_BASE_URL=
+TABLIYA_IDENTIFIER=
+TABLIYA_PASSWORD=
+
+ADMIN_USERNAME=
+ADMIN_PASSWORD=
+
+DEFAULT_DELIVERY_OFFSET_DAYS=1
+DEFAULT_HOUSE_NUMBER=
+ENABLE_INVOICE_SYNC=false
+LOG_LEVEL=info
+
+==================================================
+PROJECT STRUCTURE
+==================================================
+
+Use a clean structure like:
+
+src/
+  app.ts
+  server.ts
+  config/
+  db/
+  prisma/
+  routes/
+  controllers/
+  middlewares/
+  services/
+    shopify/
+    tabliya/
+    sync/
+    mapping/
+    admin/
+  jobs/
+  workers/
+  utils/
+  validators/
+  types/
+  views/
+  public/
+tests/
+prisma/
+docker/
+
+==================================================
+REQUIRED ROUTES
+==================================================
+
+Build at minimum:
+
+Public / system:
+- GET /health
+
+Webhook routes:
+- POST /webhooks/shopify/orders/create
+- POST /webhooks/shopify/orders/update
+- POST /webhooks/shopify/orders/cancel
+
+Admin routes:
+- GET /admin
+- GET /admin/product-mappings
+- POST /admin/product-mappings
+- PUT /admin/product-mappings/:id
+- DELETE /admin/product-mappings/:id
+
+- GET /admin/payment-method-mappings
+- POST /admin/payment-method-mappings
+- PUT /admin/payment-method-mappings/:id
+- DELETE /admin/payment-method-mappings/:id
+
+- GET /admin/webhook-events
+- GET /admin/webhook-events/:id
+
+- GET /admin/sync-logs
+- GET /admin/manual-review
+
+- POST /admin/replay/webhook/:id
+- POST /admin/replay/order/:shopifyOrderId
+
+- POST /admin/tabliya/sync-products
+- POST /admin/tabliya/sync-payment-methods
+
+- GET /admin/settings
+- POST /admin/settings
+
+==================================================
+TESTING REQUIREMENTS
+==================================================
+
+Write tests for:
+
+1. Shopify HMAC verification
+2. Webhook deduplication
+3. Product mapping lookup
+4. Payment method mapping lookup
+5. Order creation transformation
+6. Order update transformation
+7. Cancellation flow decision logic
+8. Duplicate prevention
+9. Tabliya token refresh on 401
+10. Missing mapping failure behavior
+11. Replay behavior
+
+Also add example fixtures:
+- Shopify order create webhook payload
+- Shopify order update webhook payload
+- Shopify order cancel webhook payload
+- Example transformed Tabliya create payload
+- Example transformed Tabliya update payload
+
+==================================================
+DELIVERABLES
+==================================================
+
+At the end, provide:
+
+1. Complete working codebase
+2. Prisma schema
+3. Migrations
+4. Dockerfile
+5. docker-compose.yml
+6. .env.example
+7. Seed script or sample import for mappings
+8. README with:
+   - architecture
+   - setup
+   - local run
+   - Replit run
+   - admin login
+   - webhook testing
+   - deployment notes
+   - known assumptions
+9. Example curl commands
+10. Clear explanation of cancellation behavior and any limitations
+
+==================================================
+IMPORTANT IMPLEMENTATION NOTES
+==================================================
+
+1. Do not build a fake prototype.
+Build the real service.
+
+2. Do not skip cancellation support.
+Cancellation handling is mandatory in v1.
+
+3. Do not silently ignore item-change complexity.
+If Tabliya cannot safely represent some Shopify edits, log that clearly and surface it in manual review.
+
+4. Do not hardcode secrets.
+
+5. Do not use product titles as the main mapping key.
+Use Shopify variant ID.
+
+6. Do not create duplicate Tabliya orders.
+
+7. Keep code clean, typed, and modular.
+
+8. Use the attached API documentation files as the source of truth for Tabliya behavior.
+
+==================================================
+FINAL EXECUTION INSTRUCTION
+==================================================
+
+Now build the full project.
+
+Start by:
+1. reading the attached files
+2. summarizing assumptions
+3. generating the architecture
+4. creating the full codebase
+5. explaining how to run it
+
+If anything in the attached docs is ambiguous, implement the safest behavior and document the assumption clearly in the README and admin manual review flow.

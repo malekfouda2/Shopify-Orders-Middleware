@@ -1,8 +1,9 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
-import router from "./routes";
-import { logger } from "./lib/logger";
+import cookieParser from "cookie-parser";
+import router from "./routes/index.js";
+import { logger } from "./lib/logger.js";
 
 const app: Express = express();
 
@@ -25,9 +26,12 @@ app.use(
     },
   }),
 );
+
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+// Note: express.json() and express.urlencoded() are NOT applied globally
+// because webhook routes need raw body for HMAC verification.
+// They are applied in specific routes only.
 
 app.use("/api", router);
 
