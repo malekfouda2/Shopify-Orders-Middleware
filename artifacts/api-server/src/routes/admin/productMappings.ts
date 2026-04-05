@@ -147,30 +147,7 @@ router.post("/", async (req, res) => {
   res.redirect("/api/admin/product-mappings");
 });
 
-router.post("/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const body = req.body as Record<string, string>;
-  await db
-    .update(productMappingsTable)
-    .set({
-      shopifySku: body.shopifySku || null,
-      shopifyProductTitle: body.shopifyProductTitle || null,
-      shopifyVariantTitle: body.shopifyVariantTitle || null,
-      tabliyaProductId: body.tabliyaProductId,
-      tabliyaProductName: body.tabliyaProductName || null,
-      active: body.active === "true",
-      updatedAt: new Date(),
-    })
-    .where(eq(productMappingsTable.id, id));
-  res.redirect("/api/admin/product-mappings");
-});
-
-router.post("/:id/delete", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  await db.delete(productMappingsTable).where(eq(productMappingsTable.id, id));
-  res.redirect("/api/admin/product-mappings");
-});
-
+// NOTE: /import-tabliya MUST be before /:id so Express doesn't treat "import-tabliya" as an ID
 router.post("/import-tabliya", async (_req, res) => {
   try {
     const products = await tabliya.listProducts();
@@ -227,6 +204,30 @@ router.post("/import-tabliya", async (_req, res) => {
   } catch (err) {
     res.send(renderAdminLayout("Import Tabliya Products", `<div class="alert alert-error">Failed to connect to Tabliya: ${String(err)}</div>`));
   }
+});
+
+router.post("/:id/delete", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  await db.delete(productMappingsTable).where(eq(productMappingsTable.id, id));
+  res.redirect("/api/admin/product-mappings");
+});
+
+router.post("/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const body = req.body as Record<string, string>;
+  await db
+    .update(productMappingsTable)
+    .set({
+      shopifySku: body.shopifySku || null,
+      shopifyProductTitle: body.shopifyProductTitle || null,
+      shopifyVariantTitle: body.shopifyVariantTitle || null,
+      tabliyaProductId: body.tabliyaProductId,
+      tabliyaProductName: body.tabliyaProductName || null,
+      active: body.active === "true",
+      updatedAt: new Date(),
+    })
+    .where(eq(productMappingsTable.id, id));
+  res.redirect("/api/admin/product-mappings");
 });
 
 export default router;

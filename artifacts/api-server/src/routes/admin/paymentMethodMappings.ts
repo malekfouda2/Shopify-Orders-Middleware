@@ -102,27 +102,7 @@ router.post("/", async (req, res) => {
   res.redirect("/api/admin/payment-method-mappings");
 });
 
-router.post("/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const body = req.body as Record<string, string>;
-  await db
-    .update(paymentMethodMappingsTable)
-    .set({
-      shopifyPaymentLabel: body.shopifyPaymentLabel,
-      tabliyaPaymentMethod: body.tabliyaPaymentMethod,
-      active: body.active === "true",
-      updatedAt: new Date(),
-    })
-    .where(eq(paymentMethodMappingsTable.id, id));
-  res.redirect("/api/admin/payment-method-mappings");
-});
-
-router.post("/:id/delete", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  await db.delete(paymentMethodMappingsTable).where(eq(paymentMethodMappingsTable.id, id));
-  res.redirect("/api/admin/payment-method-mappings");
-});
-
+// NOTE: /import-tabliya MUST be before /:id so Express doesn't treat "import-tabliya" as an ID
 router.post("/import-tabliya", async (_req, res) => {
   try {
     const methods = await tabliya.listPaymentMethods();
@@ -156,6 +136,27 @@ router.post("/import-tabliya", async (_req, res) => {
   } catch (err) {
     res.send(renderAdminLayout("Import Tabliya Payment Methods", `<div class="alert alert-error">Failed to connect to Tabliya: ${String(err)}</div>`));
   }
+});
+
+router.post("/:id/delete", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  await db.delete(paymentMethodMappingsTable).where(eq(paymentMethodMappingsTable.id, id));
+  res.redirect("/api/admin/payment-method-mappings");
+});
+
+router.post("/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const body = req.body as Record<string, string>;
+  await db
+    .update(paymentMethodMappingsTable)
+    .set({
+      shopifyPaymentLabel: body.shopifyPaymentLabel,
+      tabliyaPaymentMethod: body.tabliyaPaymentMethod,
+      active: body.active === "true",
+      updatedAt: new Date(),
+    })
+    .where(eq(paymentMethodMappingsTable.id, id));
+  res.redirect("/api/admin/payment-method-mappings");
 });
 
 export default router;
