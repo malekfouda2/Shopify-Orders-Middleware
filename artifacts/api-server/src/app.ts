@@ -35,4 +35,9 @@ app.use(cookieParser());
 
 app.use("/api", router);
 
+// Redirect root paths to admin UI for preview pane convenience
+app.get("/", (_req, res) => res.redirect("/api/admin"));
+app.get("/api", (_req, res) => res.redirect("/api/admin"));
+app.get("/api/", (_req, res) => res.redirect("/api/admin"));
+
 export default app;

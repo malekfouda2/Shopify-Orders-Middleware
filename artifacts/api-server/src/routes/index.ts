@@ -13,4 +13,7 @@ router.use("/webhooks", webhooksRouter);
 router.use("/admin", adminRouter);
 router.use("/admin", tabliyaSyncRouter);
 
+// Redirect /api and /api/ to the admin panel
+router.get("/", (_req, res) => res.redirect("/api/admin"));
+
 export default router;
