@@ -16,6 +16,7 @@ router.get("/", async (req, res) => {
         .where(
           or(
             like(productMappingsTable.shopifyProductTitle, `%${q}%`),
+            like(productMappingsTable.shopifyProductId, `%${q}%`),
             like(productMappingsTable.shopifyVariantId, `%${q}%`),
             like(productMappingsTable.tabliyaProductName, `%${q}%`),
             like(productMappingsTable.shopifySku, `%${q}%`)
@@ -42,25 +43,30 @@ router.get("/", async (req, res) => {
       </div>
     </div>
 
+    <p style="color:#6b7280;font-size:13px;margin-bottom:12px;">
+      💡 Find your Shopify Product ID in the product URL: <code>admin.shopify.com/store/…/products/<strong>15702111977804</strong></code>
+    </p>
+
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th>Shopify Variant ID</th><th>SKU</th><th>Shopify Product</th><th>Tabliya Product ID</th><th>Tabliya Name</th><th>Active</th><th>Actions</th>
+            <th>Shopify Product ID</th><th>Variant ID</th><th>SKU</th><th>Shopify Product</th><th>Tabliya Product ID</th><th>Tabliya Name</th><th>Active</th><th>Actions</th>
           </tr>
         </thead>
         <tbody>
           ${mappings
             .map(
               (m) => `<tr>
-            <td><code>${m.shopifyVariantId}</code></td>
+            <td><code>${m.shopifyProductId ?? "—"}</code></td>
+            <td><code style="font-size:11px;color:#9ca3af;">${m.shopifyVariantId ?? "—"}</code></td>
             <td>${m.shopifySku ?? "—"}</td>
             <td>${m.shopifyProductTitle ?? "—"}${m.shopifyVariantTitle ? ` (${m.shopifyVariantTitle})` : ""}</td>
             <td><code>${m.tabliyaProductId}</code></td>
             <td>${m.tabliyaProductName ?? "—"}</td>
             <td><span class="status ${m.active ? "synced" : "cancelled"}">${m.active ? "Active" : "Inactive"}</span></td>
             <td style="display:flex;gap:6px;">
-              <button class="btn btn-sm btn-secondary" onclick="editMapping(${m.id}, '${m.shopifyVariantId}', '${m.shopifySku ?? ""}', '${m.shopifyProductTitle ?? ""}', '${m.shopifyVariantTitle ?? ""}', '${m.tabliyaProductId}', '${m.tabliyaProductName ?? ""}', ${m.active})">Edit</button>
+              <button class="btn btn-sm btn-secondary" onclick="editMapping(${m.id}, '${m.shopifyProductId ?? ""}', '${m.shopifyVariantId ?? ""}', '${m.shopifySku ?? ""}', '${m.shopifyProductTitle ?? ""}', '${m.shopifyVariantTitle ?? ""}', '${m.tabliyaProductId}', '${m.tabliyaProductName ?? ""}', ${m.active})">Edit</button>
               <form method="POST" action="/api/admin/product-mappings/${m.id}/delete" onsubmit="return confirm('Delete this mapping?')">
                 <button class="btn btn-sm btn-danger" type="submit">Delete</button>
               </form>
@@ -68,7 +74,7 @@ router.get("/", async (req, res) => {
           </tr>`
             )
             .join("")}
-          ${mappings.length === 0 ? '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:30px;">No product mappings yet. Add one or import from Tabliya.</td></tr>' : ""}
+          ${mappings.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:#6b7280;padding:30px;">No product mappings yet. Add one or import from Tabliya.</td></tr>' : ""}
         </tbody>
       </table>
     </div>
@@ -77,9 +83,13 @@ router.get("/", async (req, res) => {
     <div class="modal-overlay" id="add-modal">
       <div class="modal">
         <h3>Add Product Mapping</h3>
+        <p style="color:#6b7280;font-size:13px;">Enter the Shopify Product ID from your product's URL. Either Product ID or Variant ID is required.</p>
         <form method="POST" action="/api/admin/product-mappings">
-          <div class="form-group"><label>Shopify Variant ID *</label><input name="shopifyVariantId" required></div>
-          <div class="form-group"><label>Shopify Product ID</label><input name="shopifyProductId"></div>
+          <div class="form-group">
+            <label>Shopify Product ID <span style="color:#6b7280;font-size:12px;">(from URL: /products/<strong>15702111977804</strong>)</span></label>
+            <input name="shopifyProductId" placeholder="e.g. 15702111977804">
+          </div>
+          <div class="form-group"><label>Shopify Variant ID <span style="color:#6b7280;font-size:12px;">(optional — for variant-level mapping)</span></label><input name="shopifyVariantId"></div>
           <div class="form-group"><label>Shopify SKU</label><input name="shopifySku"></div>
           <div class="form-group"><label>Shopify Product Title</label><input name="shopifyProductTitle"></div>
           <div class="form-group"><label>Shopify Variant Title</label><input name="shopifyVariantTitle"></div>
@@ -98,8 +108,8 @@ router.get("/", async (req, res) => {
       <div class="modal">
         <h3>Edit Product Mapping</h3>
         <form method="POST" id="edit-form" action="">
-          <input type="hidden" name="_method" value="PUT">
-          <div class="form-group"><label>Shopify Variant ID</label><input name="shopifyVariantId" id="edit-variantId" readonly style="background:#f1f5f9;"></div>
+          <div class="form-group"><label>Shopify Product ID</label><input name="shopifyProductId" id="edit-productId"></div>
+          <div class="form-group"><label>Shopify Variant ID <span style="color:#6b7280;font-size:12px;">(optional)</span></label><input name="shopifyVariantId" id="edit-variantId"></div>
           <div class="form-group"><label>Shopify SKU</label><input name="shopifySku" id="edit-sku"></div>
           <div class="form-group"><label>Shopify Product Title</label><input name="shopifyProductTitle" id="edit-productTitle"></div>
           <div class="form-group"><label>Shopify Variant Title</label><input name="shopifyVariantTitle" id="edit-variantTitle"></div>
@@ -115,7 +125,8 @@ router.get("/", async (req, res) => {
     </div>
 
     <script>
-    function editMapping(id, variantId, sku, productTitle, variantTitle, tabliyaId, tabliyaName, active) {
+    function editMapping(id, productId, variantId, sku, productTitle, variantTitle, tabliyaId, tabliyaName, active) {
+      document.getElementById('edit-productId').value = productId;
       document.getElementById('edit-variantId').value = variantId;
       document.getElementById('edit-sku').value = sku;
       document.getElementById('edit-productTitle').value = productTitle;
@@ -135,8 +146,8 @@ router.get("/", async (req, res) => {
 router.post("/", async (req, res) => {
   const body = req.body as Record<string, string>;
   await db.insert(productMappingsTable).values({
-    shopifyVariantId: body.shopifyVariantId,
     shopifyProductId: body.shopifyProductId || null,
+    shopifyVariantId: body.shopifyVariantId || null,
     shopifySku: body.shopifySku || null,
     shopifyProductTitle: body.shopifyProductTitle || null,
     shopifyVariantTitle: body.shopifyVariantTitle || null,
@@ -152,10 +163,10 @@ router.post("/import-tabliya", async (_req, res) => {
   try {
     const products = await tabliya.listProducts();
     const content = `
-      <div class="alert alert-info">Found ${products.length} products in Tabliya. Select which ones to create mappings for.</div>
+      <div class="alert alert-info">Found ${products.length} products in Tabliya. For each one, enter the Shopify Product ID from the product URL.</div>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Tabliya ID</th><th>Name</th><th>Price</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Tabliya ID</th><th>Name</th><th>Price</th><th>Map to Shopify Product</th></tr></thead>
           <tbody>
             ${products
               .map(
@@ -164,7 +175,7 @@ router.post("/import-tabliya", async (_req, res) => {
               <td>${p.name}</td>
               <td>€${p.price}</td>
               <td>
-                <button class="btn btn-sm btn-primary" onclick="startMapping(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Map to Shopify Variant</button>
+                <button class="btn btn-sm btn-primary" onclick="startMapping(${p.id}, '${p.name.replace(/'/g, "\\'")}')">Map to Shopify Product</button>
               </td>
             </tr>`
               )
@@ -176,13 +187,17 @@ router.post("/import-tabliya", async (_req, res) => {
       <!-- Quick map modal -->
       <div class="modal-overlay" id="map-modal">
         <div class="modal">
-          <h3>Map Shopify Variant to Tabliya Product</h3>
+          <h3>Map Shopify Product to Tabliya Product</h3>
+          <p style="color:#6b7280;font-size:13px;">Find the Product ID in your Shopify product URL:<br><code>admin.shopify.com/store/…/products/<strong>15702111977804</strong></code></p>
           <form method="POST" action="/api/admin/product-mappings">
             <input type="hidden" name="tabliyaProductId" id="map-tabliya-id">
             <input type="hidden" name="tabliyaProductName" id="map-tabliya-name">
-            <div class="form-group"><label>Shopify Variant ID *</label><input name="shopifyVariantId" required placeholder="e.g. 12345678901234"></div>
-            <div class="form-group"><label>Shopify SKU</label><input name="shopifySku"></div>
+            <div class="form-group">
+              <label>Shopify Product ID *</label>
+              <input name="shopifyProductId" required placeholder="e.g. 15702111977804">
+            </div>
             <div class="form-group"><label>Shopify Product Title</label><input name="shopifyProductTitle"></div>
+            <div class="form-group"><label>Shopify SKU <span style="color:#9ca3af;">(optional)</span></label><input name="shopifySku"></div>
             <div class="form-group"><label>Tabliya Product</label><input id="map-label" readonly style="background:#f1f5f9;"></div>
             <div style="display:flex;gap:8px;">
               <button type="submit" class="btn btn-primary">Create Mapping</button>
@@ -218,6 +233,8 @@ router.post("/:id", async (req, res) => {
   await db
     .update(productMappingsTable)
     .set({
+      shopifyProductId: body.shopifyProductId || null,
+      shopifyVariantId: body.shopifyVariantId || null,
       shopifySku: body.shopifySku || null,
       shopifyProductTitle: body.shopifyProductTitle || null,
       shopifyVariantTitle: body.shopifyVariantTitle || null,

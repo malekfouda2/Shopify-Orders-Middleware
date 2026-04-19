@@ -97,9 +97,26 @@ export async function transformShopifyOrder(
 
   for (const lineItem of order.line_items) {
     const variantId = lineItem.variant_id;
+    const productId = lineItem.product_id;
 
     let mapping = null;
-    if (variantId) {
+
+    // 1. Try matching by Shopify product ID (preferred — easier for users to find)
+    if (productId) {
+      [mapping] = await db
+        .select()
+        .from(productMappingsTable)
+        .where(
+          and(
+            eq(productMappingsTable.shopifyProductId, String(productId)),
+            eq(productMappingsTable.active, true)
+          )
+        )
+        .limit(1);
+    }
+
+    // 2. Fall back to variant ID match
+    if (!mapping && variantId) {
       [mapping] = await db
         .select()
         .from(productMappingsTable)

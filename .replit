@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
 [[artifacts]]
 id = "artifacts/api-server"
@@ -33,3 +33,6 @@ DEFAULT_HOUSE_NUMBER = "0"
 ENABLE_INVOICE_SYNC = "false"
 LOG_LEVEL = "info"
 ADMIN_USERNAME = "admin"
+
+[nix]
+channel = "stable-25_05"

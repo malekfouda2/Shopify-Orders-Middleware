@@ -49,8 +49,8 @@ export const orderSyncsTable = pgTable("order_syncs", {
 
 export const productMappingsTable = pgTable("product_mappings", {
   id: serial("id").primaryKey(),
-  shopifyProductId: text("shopify_product_id"),
-  shopifyVariantId: text("shopify_variant_id").notNull().unique(),
+  shopifyProductId: text("shopify_product_id").unique(),
+  shopifyVariantId: text("shopify_variant_id").unique(),
   shopifySku: text("shopify_sku"),
   shopifyProductTitle: text("shopify_product_title"),
   shopifyVariantTitle: text("shopify_variant_title"),
