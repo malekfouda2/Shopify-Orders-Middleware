@@ -415,36 +415,36 @@ async function handleOrderCancelled(job: Job, data: OrderJobData): Promise<void>
     }
 
     if (cancelStatus) {
-      // Update the order's status in Tabliya via dedicated status endpoint
-      await tabliya.updateOrderStatus(tabliyaOrderId, cancelStatus);
+      // Update the order's status in Tabliya — tries multiple endpoint strategies automatically
+      const usedStrategy = await tabliya.updateOrderStatus(tabliyaOrderId, cancelStatus);
 
-      // Also update notes on the general update endpoint
+      // Also update notes via the general update endpoint (best-effort)
       try {
         await tabliya.updateOrder(tabliyaOrderId, { notes: cancelNote });
       } catch {
         logger.warn({ tabliyaOrderId }, "Could not update cancel notes (non-fatal)");
       }
 
-      // Verify the status actually changed by fetching the order
+      // Verify the status actually changed by fetching the order back
       try {
         const verifiedOrder = await tabliya.getOrder(tabliyaOrderId);
         logger.info(
-          { tabliyaOrderId, cancelStatus, verifiedStatus: verifiedOrder.status },
+          { tabliyaOrderId, cancelStatus, verifiedStatus: verifiedOrder.status, usedStrategy },
           "Tabliya order cancel verification"
         );
         if (verifiedOrder.status !== cancelStatus) {
           logger.warn(
-            { tabliyaOrderId, sentStatus: cancelStatus, actualStatus: verifiedOrder.status },
-            "Status mismatch after cancel — Tabliya may have a different update mechanism"
+            { tabliyaOrderId, sentStatus: cancelStatus, actualStatus: verifiedOrder.status, usedStrategy },
+            "Status mismatch after cancel — check if the status value matches Tabliya's exact enum"
           );
         }
       } catch {
         logger.warn({ tabliyaOrderId }, "Could not verify status after cancel");
       }
 
-      strategy = `update_status:${cancelStatus}`;
+      strategy = `update_status:${cancelStatus}:${usedStrategy}`;
       cancelled = true;
-      logger.info({ tabliyaOrderId, cancelStatus }, "Tabliya order cancelled via status update");
+      logger.info({ tabliyaOrderId, cancelStatus, usedStrategy }, "Tabliya order cancelled via status update");
     } else {
       // No cancel status found — delete the order from Tabliya
       logger.warn(

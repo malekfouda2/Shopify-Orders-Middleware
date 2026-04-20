@@ -139,58 +139,84 @@ export async function updateOrder(
 }
 
 /**
- * Update only the status of a Tabliya order.
- * Tries dedicated status endpoints first, falls back to the general update.
+ * Decide if an HTTP error means "this endpoint doesn't exist / wrong method — try next".
  */
-export async function updateOrderStatus(id: number, status: string): Promise<void> {
+function isRetryableStatusError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const s = err.response?.status;
+  return s === 404 || s === 405 || s === 400;
+}
+
+/**
+ * Update only the status of a Tabliya order.
+ * Tries four strategies in order, stopping at the first that works.
+ * Returns the strategy that succeeded, throws if all fail.
+ */
+export async function updateOrderStatus(id: number, status: string): Promise<string> {
   logger.info({ id, status }, "Attempting to update Tabliya order status");
 
-  // Try 1: PATCH /orders/{id}/status
+  // Strategy 1: PUT /orders/{id}/status  (405 = wrong method, try next)
   try {
     await request<unknown>("put", `/orders/${id}/status`, { status });
     logger.info({ id, status }, "Order status updated via PUT /orders/{id}/status");
-    return;
+    return "PUT /orders/{id}/status";
   } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
-      logger.info({ id }, "PUT /orders/{id}/status returned 404 — trying next endpoint");
-    } else {
-      throw err; // real error — bubble up
-    }
-  }
-
-  // Try 2: POST /orders/{id}/status
-  try {
-    await request<unknown>("post", `/orders/${id}/status`, { status });
-    logger.info({ id, status }, "Order status updated via POST /orders/{id}/status");
-    return;
-  } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
-      logger.info({ id }, "POST /orders/{id}/status returned 404 — falling back to PUT /orders/{id}");
+    if (isRetryableStatusError(err)) {
+      logger.info({ id, httpStatus: (err as { response?: { status?: number } }).response?.status }, "PUT /orders/{id}/status not usable — trying PATCH /orders/{id}/status");
     } else {
       throw err;
     }
   }
 
-  // Try 3: PATCH /orders/{id}
+  // Strategy 2: PATCH /orders/{id}/status
+  try {
+    const http = makeAxiosInstance();
+    const headers = await authHeaders();
+    await http.patch<unknown>(`/orders/${id}/status`, { status }, { headers });
+    logger.info({ id, status }, "Order status updated via PATCH /orders/{id}/status");
+    return "PATCH /orders/{id}/status";
+  } catch (err) {
+    if (isRetryableStatusError(err)) {
+      logger.info({ id }, "PATCH /orders/{id}/status not usable — trying POST /orders/{id}/status");
+    } else if (axios.isAxiosError(err) && err.response?.status === 401) {
+      tokenCache = null;
+    } else {
+      throw err;
+    }
+  }
+
+  // Strategy 3: POST /orders/{id}/status
+  try {
+    await request<unknown>("post", `/orders/${id}/status`, { status });
+    logger.info({ id, status }, "Order status updated via POST /orders/{id}/status");
+    return "POST /orders/{id}/status";
+  } catch (err) {
+    if (isRetryableStatusError(err)) {
+      logger.info({ id }, "POST /orders/{id}/status not usable — trying PATCH /orders/{id}");
+    } else {
+      throw err;
+    }
+  }
+
+  // Strategy 4: PATCH /orders/{id} with just { status }
   try {
     const http = makeAxiosInstance();
     const headers = await authHeaders();
     const res = await http.patch<TabliyaOrder>(`/orders/${id}`, { status }, { headers });
     logger.info({ id, status, resultStatus: res.data?.status }, "Order status updated via PATCH /orders/{id}");
-    return;
+    return "PATCH /orders/{id}";
   } catch (err) {
-    if (axios.isAxiosError(err) && err.response?.status === 404) {
-      logger.warn({ id }, "PATCH /orders/{id} returned 404 — falling back to PUT /orders/{id}");
-    } else if (axios.isAxiosError(err) && err.response?.status === 405) {
-      logger.warn({ id }, "PATCH not supported — falling back to PUT /orders/{id}");
+    if (isRetryableStatusError(err)) {
+      logger.warn({ id }, "PATCH /orders/{id} not usable — falling back to PUT /orders/{id} with status only");
     } else if (!axios.isAxiosError(err)) {
       throw err;
     }
   }
 
-  // Final fallback: standard PUT with just status (last resort)
+  // Strategy 5: PUT /orders/{id} with only the status field (original approach — last resort)
   const result = await request<TabliyaOrder>("put", `/orders/${id}`, { status });
-  logger.info({ id, status, resultStatus: result?.status }, "Order status set via PUT /orders/{id} fallback");
+  logger.info({ id, status, resultStatus: result?.status }, "Order status update attempted via PUT /orders/{id} (last resort)");
+  return "PUT /orders/{id}";
 }
 
 export async function deleteOrder(id: number): Promise<void> {
