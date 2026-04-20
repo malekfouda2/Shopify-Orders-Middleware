@@ -415,11 +415,33 @@ async function handleOrderCancelled(job: Job, data: OrderJobData): Promise<void>
     }
 
     if (cancelStatus) {
-      // Update the order's status in Tabliya
-      await tabliya.updateOrder(tabliyaOrderId, {
-        status: cancelStatus,
-        notes: cancelNote,
-      });
+      // Update the order's status in Tabliya via dedicated status endpoint
+      await tabliya.updateOrderStatus(tabliyaOrderId, cancelStatus);
+
+      // Also update notes on the general update endpoint
+      try {
+        await tabliya.updateOrder(tabliyaOrderId, { notes: cancelNote });
+      } catch {
+        logger.warn({ tabliyaOrderId }, "Could not update cancel notes (non-fatal)");
+      }
+
+      // Verify the status actually changed by fetching the order
+      try {
+        const verifiedOrder = await tabliya.getOrder(tabliyaOrderId);
+        logger.info(
+          { tabliyaOrderId, cancelStatus, verifiedStatus: verifiedOrder.status },
+          "Tabliya order cancel verification"
+        );
+        if (verifiedOrder.status !== cancelStatus) {
+          logger.warn(
+            { tabliyaOrderId, sentStatus: cancelStatus, actualStatus: verifiedOrder.status },
+            "Status mismatch after cancel — Tabliya may have a different update mechanism"
+          );
+        }
+      } catch {
+        logger.warn({ tabliyaOrderId }, "Could not verify status after cancel");
+      }
+
       strategy = `update_status:${cancelStatus}`;
       cancelled = true;
       logger.info({ tabliyaOrderId, cancelStatus }, "Tabliya order cancelled via status update");
