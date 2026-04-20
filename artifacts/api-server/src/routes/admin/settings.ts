@@ -90,16 +90,17 @@ router.get("/", async (_req, res) => {
           }
           let html = '';
           if (data.statuses && data.statuses.length > 0) {
-            html += '<div style="margin-bottom:8px;"><strong>Click a status to select it:</strong></div>';
+            html += '<div style="margin-bottom:8px;"><strong>Click a status to select it:</strong> <small style="color:#6b7280;">(shows display name / stores API value)</small></div>';
             html += data.statuses.map(s => {
-              const safe = String(s).replace(/'/g, "\\'");
-              return \`<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('cancel-status-input').value='\${safe}'" style="margin:2px;">\${s}</button>\`;
+              const safeVal = String(s.value).replace(/'/g, "\\'");
+              const safeLabel = String(s.label).replace(/</g, '&lt;');
+              return \`<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('cancel-status-input').value='\${safeVal}'" style="margin:2px;" title="API value: \${safeVal}">\${safeLabel} <small style="opacity:0.6;font-size:10px;">(\${safeVal})</small></button>\`;
             }).join('');
           } else {
             html += '<div style="color:#f59e0b;margin-bottom:8px;">⚠️ No statuses returned. Showing raw response:</div>';
           }
           if (data.raw !== undefined) {
-            html += \`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:#6b7280;">Raw Tabliya response</summary><pre style="font-size:11px;background:#f8fafc;padding:8px;border-radius:4px;margin-top:4px;overflow:auto;">\${JSON.stringify(data.raw, null, 2)}</pre></details>\`;
+            html += \`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:#6b7280;">▶ Raw Tabliya response</summary><pre style="font-size:11px;background:#f8fafc;padding:8px;border-radius:4px;margin-top:4px;overflow:auto;">\${JSON.stringify(data.raw, null, 2)}</pre></details>\`;
           }
           el.innerHTML = html;
         } catch(e) {

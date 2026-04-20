@@ -399,19 +399,20 @@ async function handleOrderCancelled(job: Job, data: OrderJobData): Promise<void>
 
     if (!cancelStatus) {
       // Step 2: Auto-detect from Tabliya's status list
-      let statuses: string[] = [];
       try {
-        statuses = await tabliya.getOrderStatuses();
+        const statuses = await tabliya.getOrderStatuses();
         logger.info({ statuses }, "Fetched Tabliya order statuses for cancel detection");
+        // Match against common cancel-related values (check both label and value)
+        const cancelKeywords = ["cancelled", "canceled", "annulled", "geannuleerd", "cancel"];
+        const match = statuses.find((s) =>
+          cancelKeywords.some((kw) =>
+            s.value.toLowerCase().includes(kw) || s.label.toLowerCase().includes(kw)
+          )
+        );
+        if (match) cancelStatus = match.value;
       } catch {
         logger.warn("Could not fetch order statuses from Tabliya");
       }
-
-      cancelStatus = statuses.find((s) =>
-        ["cancelled", "canceled", "annulled", "geannuleerd", "geannulleeerd", "geannuleerd"].includes(
-          s.toLowerCase()
-        )
-      );
     }
 
     if (cancelStatus) {

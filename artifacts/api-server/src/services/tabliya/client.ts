@@ -224,41 +224,70 @@ export async function deleteOrder(id: number): Promise<void> {
   return request<void>("delete", `/orders/${id}`);
 }
 
+export interface TabliyaOrderStatus {
+  /** Human-readable display name, e.g. "Material Checking" */
+  label: string;
+  /** The exact string value Tabliya accepts in API calls, e.g. "material_checking" */
+  value: string;
+}
+
+/**
+ * Convert a display name like "Material Checking" to a snake_case API key "material_checking".
+ * Used as a last-resort fallback if no explicit value field is present.
+ */
+function toSnakeCase(s: string): string {
+  return s
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/gi, "")
+    .toLowerCase();
+}
+
+/**
+ * Extract the internal API value from a status object.
+ * Priority: value > slug > key > id (if string) > snake_case(name)
+ */
+function extractStatusValue(item: Record<string, unknown>, displayName: string): string {
+  const candidates = ["value", "slug", "key"] as const;
+  for (const field of candidates) {
+    if (typeof item[field] === "string" && item[field]) {
+      return item[field] as string;
+    }
+  }
+  // If id is a non-numeric string, use it
+  if (typeof item["id"] === "string" && !/^\d+$/.test(item["id"] as string)) {
+    return item["id"] as string;
+  }
+  // Derive from display name as last resort
+  return toSnakeCase(displayName);
+}
+
 /**
  * Fetch available order statuses from Tabliya.
- * Tabliya may return either string[] or object[] — we normalize to string[].
+ * Returns structured { label, value } pairs where `value` is the exact
+ * string Tabliya accepts in order update API calls.
  */
-export async function getOrderStatuses(): Promise<string[]> {
+export async function getOrderStatuses(): Promise<TabliyaOrderStatus[]> {
   const raw = await request<unknown>("get", "/orders/statuses");
 
-  // Already a plain string array
+  // Plain string array — label and value are the same
   if (Array.isArray(raw) && (raw.length === 0 || typeof raw[0] === "string")) {
-    return raw as string[];
+    return (raw as string[]).map((s) => ({ label: s, value: s }));
   }
 
-  // Array of objects — extract common name fields
+  // Array of objects — extract label (display) and value (API key) separately
   if (Array.isArray(raw) && typeof raw[0] === "object" && raw[0] !== null) {
-    return (raw as Record<string, unknown>[])
-      .map((item) => {
-        return (
-          (item["name"] as string) ??
-          (item["label"] as string) ??
-          (item["status"] as string) ??
-          (item["value"] as string) ??
-          String(Object.values(item)[0])
-        );
-      })
-      .filter(Boolean);
+    return (raw as Record<string, unknown>[]).map((item) => {
+      // Display name: prefer "name" or "label" field
+      const label = String(
+        item["name"] ?? item["label"] ?? item["title"] ?? Object.values(item)[0] ?? ""
+      );
+      const value = extractStatusValue(item, label);
+      return { label, value };
+    }).filter((s) => s.label);
   }
 
-  // Fallback: try to extract values from whatever structure we got
-  logger.warn({ raw }, "Unexpected Tabliya order statuses format — attempting extraction");
-  if (typeof raw === "object" && raw !== null) {
-    return Object.values(raw as Record<string, unknown>)
-      .map((v) => String(v))
-      .filter(Boolean);
-  }
-
+  logger.warn({ raw }, "Unexpected Tabliya order statuses format");
   return [];
 }
 
