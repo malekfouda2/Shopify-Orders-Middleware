@@ -141,8 +141,49 @@ export async function deleteOrder(id: number): Promise<void> {
   return request<void>("delete", `/orders/${id}`);
 }
 
+/**
+ * Fetch available order statuses from Tabliya.
+ * Tabliya may return either string[] or object[] — we normalize to string[].
+ */
 export async function getOrderStatuses(): Promise<string[]> {
-  return request<string[]>("get", "/orders/statuses");
+  const raw = await request<unknown>("get", "/orders/statuses");
+
+  // Already a plain string array
+  if (Array.isArray(raw) && (raw.length === 0 || typeof raw[0] === "string")) {
+    return raw as string[];
+  }
+
+  // Array of objects — extract common name fields
+  if (Array.isArray(raw) && typeof raw[0] === "object" && raw[0] !== null) {
+    return (raw as Record<string, unknown>[])
+      .map((item) => {
+        return (
+          (item["name"] as string) ??
+          (item["label"] as string) ??
+          (item["status"] as string) ??
+          (item["value"] as string) ??
+          String(Object.values(item)[0])
+        );
+      })
+      .filter(Boolean);
+  }
+
+  // Fallback: try to extract values from whatever structure we got
+  logger.warn({ raw }, "Unexpected Tabliya order statuses format — attempting extraction");
+  if (typeof raw === "object" && raw !== null) {
+    return Object.values(raw as Record<string, unknown>)
+      .map((v) => String(v))
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
+ * Get the raw order statuses response from Tabliya for debugging.
+ */
+export async function getOrderStatusesRaw(): Promise<unknown> {
+  return request<unknown>("get", "/orders/statuses");
 }
 
 // --- Payment Methods ---

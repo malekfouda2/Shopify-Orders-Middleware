@@ -84,14 +84,24 @@ router.get("/", async (_req, res) => {
         try {
           const r = await fetch('/api/admin/settings/tabliya-statuses');
           const data = await r.json();
-          if (data.statuses && data.statuses.length > 0) {
-            el.innerHTML = '<strong>Available statuses:</strong> ' +
-              data.statuses.map(s => \`<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('cancel-status-input').value='\${s}'" style="margin:2px;">\${s}</button>\`).join('');
-          } else if (data.error) {
+          if (data.error) {
             el.innerHTML = '<span style="color:#ef4444;">Error: ' + data.error + '</span>';
-          } else {
-            el.innerHTML = '<span style="color:#6b7280;">No statuses found in Tabliya.</span>';
+            return;
           }
+          let html = '';
+          if (data.statuses && data.statuses.length > 0) {
+            html += '<div style="margin-bottom:8px;"><strong>Click a status to select it:</strong></div>';
+            html += data.statuses.map(s => {
+              const safe = String(s).replace(/'/g, "\\'");
+              return \`<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('cancel-status-input').value='\${safe}'" style="margin:2px;">\${s}</button>\`;
+            }).join('');
+          } else {
+            html += '<div style="color:#f59e0b;margin-bottom:8px;">⚠️ No statuses returned. Showing raw response:</div>';
+          }
+          if (data.raw !== undefined) {
+            html += \`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:#6b7280;">Raw Tabliya response</summary><pre style="font-size:11px;background:#f8fafc;padding:8px;border-radius:4px;margin-top:4px;overflow:auto;">\${JSON.stringify(data.raw, null, 2)}</pre></details>\`;
+          }
+          el.innerHTML = html;
         } catch(e) {
           el.innerHTML = '<span style="color:#ef4444;">Failed to connect to Tabliya.</span>';
         }
@@ -144,8 +154,11 @@ router.post("/", async (req, res) => {
 // Returns available order statuses from Tabliya — used by the settings page
 router.get("/tabliya-statuses", async (_req, res) => {
   try {
-    const statuses = await tabliya.getOrderStatuses();
-    res.json({ statuses });
+    const [statuses, raw] = await Promise.all([
+      tabliya.getOrderStatuses(),
+      tabliya.getOrderStatusesRaw(),
+    ]);
+    res.json({ statuses, raw });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.json({ statuses: [], error: message });
