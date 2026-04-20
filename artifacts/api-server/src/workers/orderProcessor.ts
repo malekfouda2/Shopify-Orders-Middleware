@@ -1,6 +1,6 @@
 import type { Job } from "bullmq";
 import { db } from "../db/connection.js";
-import { webhookEventsTable, orderSyncsTable, syncJobLogsTable, manualReviewItemsTable } from "../db/schema.js";
+import { webhookEventsTable, orderSyncsTable, syncJobLogsTable, manualReviewItemsTable, appSettingsTable } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
 import * as tabliya from "../services/tabliya/client.js";
 import { transformShopifyOrder, buildUpdatePayload, buildNotes } from "../services/shopify/transformer.js";
@@ -380,37 +380,56 @@ async function handleOrderCancelled(job: Job, data: OrderJobData): Promise<void>
   const tabliyaOrderId = parseInt(syncRow.tabliyaOrderId, 10);
   const cancelNote = buildNotes(order, `CANCELLED: ${order.cancel_reason ?? "No reason"} at ${order.cancelled_at ?? "unknown"}`);
 
-  // Strategy: First try to update status to a cancelled-like state via GET /api/orders/statuses
-  // Then fall back to DELETE if appropriate
+  // Strategy:
+  // 1. Use the TABLIYA_CANCEL_STATUS setting if configured (admin-configured, most reliable)
+  // 2. Auto-detect a cancel-like status from GET /api/orders/statuses
+  // 3. Fall back to DELETE
   let cancelled = false;
   let strategy = "unknown";
 
   try {
-    // Step 1: Try to get available statuses
-    let statuses: string[] = [];
-    try {
-      statuses = await tabliya.getOrderStatuses();
-    } catch {
-      logger.warn("Could not fetch order statuses from Tabliya");
+    // Step 1: Check if admin has configured a specific cancel status in Settings
+    const [configuredStatus] = await db
+      .select()
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, "TABLIYA_CANCEL_STATUS"))
+      .limit(1);
+
+    let cancelStatus: string | undefined = configuredStatus?.value?.trim() || undefined;
+
+    if (!cancelStatus) {
+      // Step 2: Auto-detect from Tabliya's status list
+      let statuses: string[] = [];
+      try {
+        statuses = await tabliya.getOrderStatuses();
+        logger.info({ statuses }, "Fetched Tabliya order statuses for cancel detection");
+      } catch {
+        logger.warn("Could not fetch order statuses from Tabliya");
+      }
+
+      cancelStatus = statuses.find((s) =>
+        ["cancelled", "canceled", "annulled", "geannuleerd", "geannulleeerd", "geannuleerd"].includes(
+          s.toLowerCase()
+        )
+      );
     }
 
-    // Look for a cancel-like status
-    const cancelStatus = statuses.find((s) =>
-      ["cancelled", "canceled", "annulled", "geannuleerd", "geannulleeerd"].includes(
-        s.toLowerCase()
-      )
-    );
-
     if (cancelStatus) {
-      // Preferred: update status to cancelled
+      // Update the order's status in Tabliya
       await tabliya.updateOrder(tabliyaOrderId, {
         status: cancelStatus,
         notes: cancelNote,
       });
       strategy = `update_status:${cancelStatus}`;
       cancelled = true;
+      logger.info({ tabliyaOrderId, cancelStatus }, "Tabliya order cancelled via status update");
     } else {
-      // No cancel status available — use DELETE as intended pattern per docs
+      // No cancel status found — delete the order from Tabliya
+      logger.warn(
+        { tabliyaOrderId },
+        "No cancel status configured or detected — deleting order from Tabliya. " +
+        "Set TABLIYA_CANCEL_STATUS in Settings to avoid this."
+      );
       await tabliya.deleteOrder(tabliyaOrderId);
       strategy = "delete";
       cancelled = true;

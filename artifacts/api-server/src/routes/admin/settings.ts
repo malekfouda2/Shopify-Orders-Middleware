@@ -3,6 +3,7 @@ import { db } from "../../db/connection.js";
 import { appSettingsTable } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 import { renderAdminLayout } from "./layout.js";
+import * as tabliya from "../../services/tabliya/client.js";
 
 const router = Router();
 
@@ -11,6 +12,7 @@ const SETTING_KEYS = [
   "DEFAULT_HOUSE_NUMBER",
   "ENABLE_INVOICE_SYNC",
   "LOG_LEVEL",
+  "TABLIYA_CANCEL_STATUS",
 ];
 
 router.get("/", async (_req, res) => {
@@ -59,6 +61,55 @@ router.get("/", async (_req, res) => {
     </div>
 
     <div class="card">
+      <h3>Order Cancellation</h3>
+      <p style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+        When a Shopify order is cancelled, the system needs to know which status to set in Tabliya.
+        Click <strong>Fetch Statuses</strong> to see what's available, then enter the correct one below.
+      </p>
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:16px;">
+        <div class="form-group" style="margin:0;flex:1;">
+          <label>Tabliya Cancel Status <small>(exact status name as it appears in Tabliya)</small></label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="cancel-status-input" value="${settingMap.TABLIYA_CANCEL_STATUS ?? ""}" placeholder="e.g. geannuleerd">
+            <button type="button" class="btn btn-secondary" onclick="fetchStatuses()">🔍 Fetch Statuses</button>
+            <button type="button" class="btn btn-primary" onclick="saveCancelStatus()">Save</button>
+          </div>
+        </div>
+      </div>
+      <div id="statuses-result" style="font-size:13px;color:#374151;"></div>
+      <script>
+      async function fetchStatuses() {
+        const el = document.getElementById('statuses-result');
+        el.innerHTML = '<em style="color:#6b7280;">Fetching from Tabliya...</em>';
+        try {
+          const r = await fetch('/api/admin/settings/tabliya-statuses');
+          const data = await r.json();
+          if (data.statuses && data.statuses.length > 0) {
+            el.innerHTML = '<strong>Available statuses:</strong> ' +
+              data.statuses.map(s => \`<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('cancel-status-input').value='\${s}'" style="margin:2px;">\${s}</button>\`).join('');
+          } else if (data.error) {
+            el.innerHTML = '<span style="color:#ef4444;">Error: ' + data.error + '</span>';
+          } else {
+            el.innerHTML = '<span style="color:#6b7280;">No statuses found in Tabliya.</span>';
+          }
+        } catch(e) {
+          el.innerHTML = '<span style="color:#ef4444;">Failed to connect to Tabliya.</span>';
+        }
+      }
+      async function saveCancelStatus() {
+        const val = document.getElementById('cancel-status-input').value.trim();
+        const form = document.createElement('form');
+        form.method = 'POST'; form.action = '/api/admin/settings';
+        const input = document.createElement('input');
+        input.type = 'hidden'; input.name = 'TABLIYA_CANCEL_STATUS'; input.value = val;
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+      }
+      </script>
+    </div>
+
+    <div class="card">
       <h3>Tabliya Integration Tools</h3>
       <p style="font-size:13px;color:#6b7280;margin-bottom:16px;">Manually trigger sync jobs to import data from Tabliya.</p>
       <div style="display:flex;gap:10px;">
@@ -88,6 +139,17 @@ router.post("/", async (req, res) => {
     }
   }
   res.redirect("/api/admin/settings");
+});
+
+// Returns available order statuses from Tabliya — used by the settings page
+router.get("/tabliya-statuses", async (_req, res) => {
+  try {
+    const statuses = await tabliya.getOrderStatuses();
+    res.json({ statuses });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.json({ statuses: [], error: message });
+  }
 });
 
 export default router;
