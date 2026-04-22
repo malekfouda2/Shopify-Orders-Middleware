@@ -2,6 +2,10 @@ import { Router } from "express";
 import crypto from "crypto";
 import { config } from "../../config/index.js";
 import { sessions } from "./index.js";
+import { db } from "../../db/connection.js";
+import { adminUsersTable } from "../../db/schema.js";
+import { eq } from "drizzle-orm";
+import { verifyPassword } from "../../utils/password.js";
 
 const router = Router();
 
@@ -47,11 +51,31 @@ router.get("/login", (_req, res) => {
 </html>`);
 });
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { username, password } = req.body as { username: string; password: string };
   const adminPass = process.env["ADMIN_PASSWORD"] ?? "";
 
+  let authenticated = false;
+
+  // Check the built-in env-based admin first
   if (username === config.ADMIN_USERNAME && password === adminPass) {
+    authenticated = true;
+  }
+
+  // If not matched, check DB-managed admin users
+  if (!authenticated) {
+    const [dbUser] = await db
+      .select()
+      .from(adminUsersTable)
+      .where(eq(adminUsersTable.username, username.trim()))
+      .limit(1);
+
+    if (dbUser && await verifyPassword(password, dbUser.passwordHash)) {
+      authenticated = true;
+    }
+  }
+
+  if (authenticated) {
     const token = crypto.randomBytes(32).toString("hex");
     sessions.set(token, { adminUser: username, createdAt: Date.now() });
     (res as any).cookie("admin_session", token, {

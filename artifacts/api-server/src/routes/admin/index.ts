@@ -8,6 +8,7 @@ import settingsRouter from "./settings.js";
 import replayRouter from "./replay.js";
 import dashboardRouter from "./dashboard.js";
 import authRouter from "./auth.js";
+import usersRouter from "./users.js";
 import { adminAuthMiddleware } from "../../middlewares/adminAuth.js";
 
 const router = Router();
@@ -45,5 +46,6 @@ router.use("/sync-logs", syncLogsRouter);
 router.use("/manual-review", manualReviewRouter);
 router.use("/settings", settingsRouter);
 router.use("/replay", replayRouter);
+router.use("/users", usersRouter);
 
 export default router;

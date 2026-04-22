@@ -7,6 +7,7 @@ export function renderAdminLayout(title: string, content: string, activePage?: s
     { href: "/api/admin/sync-logs", label: "Sync Logs", icon: "📋" },
     { href: "/api/admin/manual-review", label: "Manual Review", icon: "🔍" },
     { href: "/api/admin/settings", label: "Settings", icon: "⚙️" },
+    { href: "/api/admin/users", label: "Users", icon: "👤" },
   ];
 
   return `<!DOCTYPE html>

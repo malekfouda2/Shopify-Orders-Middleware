@@ -101,6 +101,14 @@ export const manualReviewItemsTable = pgTable("manual_review_items", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const adminUsersTable = pgTable("admin_users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export type WebhookEvent = typeof webhookEventsTable.$inferSelect;
 export type InsertWebhookEvent = typeof webhookEventsTable.$inferInsert;
 export type OrderSync = typeof orderSyncsTable.$inferSelect;
