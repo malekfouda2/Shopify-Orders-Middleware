@@ -106,11 +106,14 @@ router.post("/login", async (req, res) => {
 </html>`);
 });
 
-router.post("/logout", (req, res) => {
-  const token = (req as any).sessionToken;
+function handleLogout(req: any, res: any) {
+  const token = req.sessionToken;
   if (token) sessions.delete(token);
-  (res as any).clearCookie("admin_session");
+  res.clearCookie("admin_session");
   res.redirect("/api/admin/login");
-});
+}
+
+router.get("/logout", handleLogout);
+router.post("/logout", handleLogout);
 
 export default router;
