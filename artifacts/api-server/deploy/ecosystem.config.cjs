@@ -2,8 +2,9 @@ module.exports = {
   apps: [
     {
       name: "tabliya-api",
-      script: "./dist/index.mjs",
+      script: "dist/index.mjs",
       node_args: "--enable-source-maps",
+      cwd: "/opt/tabliya/artifacts/api-server",
       instances: 1,
       autorestart: true,
       watch: false,
@@ -12,8 +13,9 @@ module.exports = {
         NODE_ENV: "production",
         PORT: "8000",
       },
-      error_file: "./logs/error.log",
-      out_file: "./logs/out.log",
+      env_file: "/opt/tabliya/.env",
+      error_file: "/opt/tabliya/logs/error.log",
+      out_file: "/opt/tabliya/logs/out.log",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
     },
   ],
